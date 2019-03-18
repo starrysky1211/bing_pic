@@ -1,10 +1,13 @@
+
+# __*__ coding: UTF-8 __*__
 from wxpy import *
 import sqlite3
-
+import random
 import time
-import urllib.request, urllib.parse, urllib.error
+import requests
 import time
 import os
+import urllib
 
 import json
 import wave
@@ -12,33 +15,78 @@ import base64
 import subprocess
 
 
-def getHtml(url):
-    page = urllib.request.urlopen(url)
-    html = page.read()
-    return html
+def baidu_weather_api(msg):
+    res = msg.split()[1]
+    url='http://api.map.baidu.com/telematics/v3/weather?location=res&ak=8yoeZq9BzQGxKQMvpUyKNZuZ&output=json'
+    url = url.replace('res', res)
+    condition = requests.get(url).content
+    condition = str(condition,encoding='utf8')
+    condition = json.loads(condition)
+    data = condition["results"][0]
+
+    current_city = '当前城市：'+ data["currentCity"]+'\n'
+    pm = "PM2.5为："+data["pm25"]+'\n'
+
+    today_tem=data["weather_data"][0] # dict
+
+    tem_today = "今日温度：" + today_tem["temperature"] + '\n'
+    weather_today = "天气："+today_tem['weather']+'\n'
+    wind = "风力："+today_tem["wind"]+'\n'
+    now = today_tem["date"]+'\n'
+
+    segestions = data["index"]
+    segestion = ''
+    for se in segestions:
+        if se['title'] == '穿衣':
+            segestion += "衣着推荐："+se['des']+'\n\n'
+        if se['title'] == "紫外线强度":
+            segestion += se['des'] + '\n'
+
+    reply=current_city+pm+tem_today+weather_today+wind+now+segestion
+    return reply
 
 
 def getBGURL():
-    thing = getHtml('https://www.bing.com')
-    bgurl = thing[thing.index(b'g_img={url:')+12:len(thing)]
-    bgurl = bgurl[0:bgurl.index(b',id:')-1]
-    bgurl = bgurl.replace(b'"', b'')
-    bgurl = 'https://www.bing.com'+bgurl.decode('utf-8')
-    return bgurl
+    print('in getBGURL')
+    thing = requests.get('https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN')
+    thing = thing.json()
+    bgurl = thing["images"][0]["url"]
+    bgurl = "https://cn.bing.com/"+bgurl
+    details = thing["images"][0]["copyright"]
+    story_url = thing["images"][0]["copyrightlink"]
+    return bgurl, details, story_url
 
 
-def name():
-    path = os.path.dirname(os.path.realpath(__file__))
+def down_bing_pic():
     date = time.strftime('%Y_%m_%d', time.localtime(time.time()))
-    filename = path+'\\'+date+'.jpg'
-    return filename
-
+    print(-1)
+    with open('bing_flag.txt','rb') as ff:
+        thing = ff.readlines()
+        print(-1.2)
+        for tid, de in enumerate(thing):
+            print(-1,tid)
+            thing[tid] = str(de,encoding='utf8')
+    if thing[0]==date:
+        print(1)
+        return thing[1], thing[2]
+    print(0)
+    url, details, story = getBGURL()
+    print(1)
+    pic = requests.get(url).content
+    p_name = "today_bing.jpg"
+    print('downloading bing_pic today')
+    with open('bing_flag.txt','wb') as ff:
+        string = date+'\n'+details+'\n'+story
+        ff.write(bytes(string, encoding='utf8'))
+    with open(p_name,'wb') as f:
+        f.write(pic)
+    return details, story
 
 
 # 初始化微信机器人
 bot = Bot(cache_path=True)
 
-wife = ensure_one(bot.friends().search("甜甜圈"))
+wife = ensure_one(bot.friends().search("我家的小"))
 tuling = Tuling(api_key='4e6c2cd5858647ea9851346c8ecac433')
 
 
@@ -94,75 +142,57 @@ def wav_to_text(wav_file):
             print(e)
 
 
-@bot.register(wife, TEXT)
-def print_messages(msg):
-    print(msg)
-    # tuling.do_reply(msg)
-    database = sqlite3.connect(r'D:\cloud\家\wxRobot\repeat.db')
-    db = database.cursor()
-    cursor = db.execute('SELECT ID, WORDS, REPLY FROM keywords')
-    for row in cursor:
-        if row[1] in msg.text:
-            msg.reply(row[2])
-            break
-        elif '添加词条' in msg.text:
-            thing = msg.text.split()
-            db.execute("SELECT WORDS FROM keywords where WORDS = '%s'" % thing[1])
-            exist = db.fetchall()
-            if len(exist) > 0:
-                break
-            else:
-                db.execute("INSERT INTO keywords (ID, WORDS, REPLY) \
-                    VALUES ((SELECT max(Id) FROM keywords)+1 ,'%s','%s')" % (thing[1], '[bot]'+thing[2]))
-                msg.reply('添加成功')
-                break
-    db.close()
-    database.commit()
-    database.close()
-
-
 home = ensure_one(bot.groups().search('皇室'))
 
-
-@bot.register(home, TEXT)
+@bot.register(msg_types=TEXT)
 def reply_massage(msg):
     print(msg)
-    # if msg.text == 'bing' or '必应':
-    #     # 读取背景图片url并保存在S:\master\self_learning\Python\learn-python\bing_pic\html\****_**_**.jpg中
-    #     url = getBGURL()
-    #     html = urllib.request.urlretrieve(url, filename=name())
-    #     msg.reply_image(time.strftime('%Y_%m_%d', time.localtime(time.time()))+'.jpg')
-    reply = tuling.reply_text(msg)
-    msg.reply('[bot]'+reply)
-    database = sqlite3.connect(r'D:\cloud\家\wxRobot\repeat.db')
-    db = database.cursor()
-    cursor = db.execute('SELECT ID, WORDS, REPLY FROM keywords')
-    for row in cursor:
-        if row[1] in msg.text:
-            msg.reply(row[2])
-        elif '添加词条' in msg.text:
-            thing = msg.text.split()
-            db.execute("SELECT WORDS FROM keywords where WORDS = '%s'" % thing[1])
-            exist = db.fetchall()
-            if len(exist) > 0:
-                break
-            else:
-                db.execute("INSERT INTO keywords (ID, WORDS, REPLY) \
-                    VALUES ((SELECT max(Id) FROM keywords)+1 ,'%s','%s')" % (thing[1], '[bot]'+thing[2]))
-                msg.reply('添加成功')
-                break
-    db.close()
-    database.commit()
-    database.close()
+    if msg.text in ['bing', '必应']:
+        # 读取背景图片url并保存在S:\master\self_learning\Python\learn-python\bing_pic\html\****_**_**.jpg中
+        p_name = "today_bing.jpg"
+        details, story = down_bing_pic()
+        msg.reply(details)
+        msg.reply_image(p_name)
+        msg.reply("详情点击："+story)
+    if "天气预报" in msg.text[:5]:
+        mes = msg.text
+        if len(mes.split()) == 1:
+            mes='天气预报 北京海淀'
+        condition = baidu_weather_api(mes)
+        msg.reply(condition)
+    # if flag<0.1:
+    #     print("turing replying")
+    #     reply = tuling.reply_text(msg)
+    #     msg.reply('[bot]'+reply)
+    # database = sqlite3.connect(r'E:\cloud\home\wxRobot\repeat.db')
+    # db = database.cursor()
+    # cursor = db.execute('SELECT ID, WORDS, REPLY FROM keywords')
+    # for row in cursor:
+    #     if row[1] in msg.text:
+    #         msg.reply(row[2])
+    #     elif '添加词条' in msg.text:
+    #         thing = msg.text.split()
+    #         db.execute("SELECT WORDS FROM keywords where WORDS = '%s'" % thing[1])
+    #         exist = db.fetchall()
+    #         if len(exist) > 0:
+    #             break
+    #         else:
+    #             db.execute("INSERT INTO keywords (ID, WORDS, REPLY) \
+    #                 VALUES ((SELECT max(Id) FROM keywords)+1 ,'%s','%s')" % (thing[1], '[bot]'+thing[2]))
+    #             msg.reply('添加成功')
+    #             break
+    # db.close()
+    # database.commit()
+    # database.close()
 
 
-@bot.register(wife, RECORDING)
+@bot.register(msg_types=RECORDING)
 def translate_sound(msg):
-    msg.get_file(save_path='a.mp3')
-    path = os.path.abspath('.')+'\\'
-    print(path)
+    msg.get_file(save_path='record.mp3')
+    # path = os.path.abspath('.')+'\\'
+    # print(path)
     try:
-        subprocess.check_call('ffmpeg -i a.mp3 -ar 16000 -ac 1 -acodec pcm_s16le a.wav', shell=True)
+        subprocess.check_call('ffmpeg -i record.mp3 -ar 16000 -ac 1 -acodec pcm_s16le record.wav', shell=True)
         # ''
     except Exception as e:
         print(1, e)
@@ -173,37 +203,4 @@ def translate_sound(msg):
         print(e)
 
 
-
-
-lab = ensure_one(bot.groups().search("精密机电小分队"))
-@bot.register(lab, TEXT)
-def reply_auto(msg):
-    print(msg)
-    # if msg.text == 'bing' or '必应':
-    #     # 读取背景图片url并保存在S:\master\self_learning\Python\learn-python\bing_pic\html\****_**_**.jpg中
-    #     url = getBGURL()
-    #     html = urllib.request.urlretrieve(url, filename=name())
-    #     msg.reply_image(time.strftime('%Y_%m_%d', time.localtime(time.time()))+'.jpg')
-    tuling.do_reply(msg)
-    database = sqlite3.connect(r'D:\cloud\家\wxRobot\repeat.db')
-    db = database.cursor()
-    cursor = db.execute('SELECT ID, WORDS, REPLY FROM keywords')
-    for row in cursor:
-        if row[1] in msg.text:
-            msg.reply(row[2])
-            break
-        elif '添加词条' in msg.text:
-            thing = msg.text.split()
-            db.execute("SELECT WORDS FROM keywords where WORDS = '%s'" % thing[1])
-            exist = db.fetchall()
-            if len(exist) > 0:
-                break
-            else:
-                db.execute("INSERT INTO keywords (ID, WORDS, REPLY) \
-                    VALUES ((SELECT max(Id) FROM keywords)+1 ,'%s','%s')" % (thing[1], '[bot]'+thing[2]))
-                msg.reply('添加成功')
-                break
-    db.close()
-    database.commit()
-    database.close()
 embed()
